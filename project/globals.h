@@ -25,8 +25,11 @@
 #define MAX_MSG_LEN 256
 extern char send_buffer[MAX_MSG_LEN];
 
+extern int DRY_TH;
+
 // define TMessage object
-typedef struct tm {
+typedef struct tm
+{
     char message[MAX_MSG_LEN];
 } TMessage;
 
@@ -34,15 +37,15 @@ typedef struct tm {
 #define QLEN 5
 
 /* LED DEFINES */
-#define LED_RED 0 //low water level
-#define LED_YELLOW 1 //mid water level (combine RED + GREEN = YELLOW)
-#define LED_GREEN 2 //high water level -> ok
-#define LED_BLINK 3 //LDR below threshold
+#define LED_RED 0    // low water level
+#define LED_YELLOW 1 // mid water level (combine RED + GREEN = YELLOW)
+#define LED_GREEN 2  // high water level -> ok
+#define LED_BLINK 3  // LDR below threshold
 #define LED_OFF 4
 
-#define RED_PIN		31	// PTE31
-#define GREEN_PIN	5	// PTD5
-#define BLUE_PIN	29	// PTE29
+#define RED_PIN 31  // PTE31
+#define GREEN_PIN 5 // PTD5
+#define BLUE_PIN 29 // PTE29
 
 /* UART DEFINES */
 // defining baud rate, tx, rx, uart pins, uart priority
@@ -52,7 +55,6 @@ typedef struct tm {
 #define UART2_INT_PRIO 128
 
 // defining threhsholds (to be tuned)
-#define DRY_TH 2000
 #define WL_LOW_TH 1000
 #define WL_HIGH_TH 3000
 #define LDR_LOW_TH 500

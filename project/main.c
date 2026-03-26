@@ -2,6 +2,11 @@
 // Default libraries
 #include "globals.h"
 
+#include "adc.h"
+#include "led.h"
+#include "rtos_tasks.h"
+#include "uart.h"
+
 char send_buffer[MAX_MSG_LEN];
 
 QueueHandle_t queue;
@@ -24,8 +29,17 @@ int main(void)
 #endif
 
     GPIO_Init();
+    PRINTF("GPIO initialized\r\n");
+
     ADC_Init();
+    PRINTF("ADC initialized\r\n");
+
     initUART2(BAUD_RATE);
+    PRINTF("UART initialized\r\n");
+
+    LED_Off(RED_PIN);
+    LED_Off(GREEN_PIN);
+    LED_Off(BLUE_PIN);
 
     // creating queues and semaphores
     queue = xQueueCreate(QLEN, sizeof(TMessage));
@@ -34,12 +48,16 @@ int main(void)
     uartMutex = xSemaphoreCreateMutex();
     alertSemaphore = xSemaphoreCreateBinary();
 
+    PRINTF("All queues and semaphores/mutexes created\r\n");
+
     // Initializing tasks
     xTaskCreate(soilMoisturePollingTask, "soil_poll", configMINIMAL_STACK_SIZE + 100, NULL, 2, NULL);
     xTaskCreate(alertTask, "alert", configMINIMAL_STACK_SIZE + 100, NULL, 2, NULL);
     xTaskCreate(uartTxTask, "uart_tx", configMINIMAL_STACK_SIZE + 100, NULL, 3, NULL);
     xTaskCreate(uartRxTask, "uart_rx", configMINIMAL_STACK_SIZE + 100, NULL, 3, NULL);
     xTaskCreate(ledControlTask, "led_ctrl", configMINIMAL_STACK_SIZE + 100, NULL, 2, NULL);
+
+    PRINTF("All tasks created\r\n");
 
     // Start the scheduler
     vTaskStartScheduler();

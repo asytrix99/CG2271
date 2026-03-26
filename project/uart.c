@@ -6,6 +6,10 @@
  */
 
 #include "uart.h"
+#include "led.h"
+
+int DRY_TH;
+
 // --- UART Hardware & ISR ---
 void initUART2(uint32_t baud_rate)
 {
@@ -64,15 +68,19 @@ void UART2_FLEXIO_IRQHandler(void)
     // Send and receive pointers
     static int recv_ptr = 0, send_ptr = 0;
     char rx_data;
-    char recv_buffer[MAX_MSG_LEN];
+    static char recv_buffer[MAX_MSG_LEN];
 
     NVIC_ClearPendingIRQ(UART2_FLEXIO_IRQn);
     // checking if send_buffer empty with S1 & Empty Mask
     // start filling up UART->D with data
-    if (UART2->S1 & UART_S1_TDRE_MASK) {
+    //
+    if ((UART2->S1 & UART_S1_TDRE_MASK) && (UART2->C2 & UART_C2_TIE_MASK))
+    {
+        PRINTF("Ready to send data over on UART\r\n");
         // once reached end of send_buffer,
         // stop transmitting, reset send_ptr
-        if (send_buffer[send_ptr] == '\0') {
+        if (send_buffer[send_ptr] == '\0')
+        {
             send_ptr = 0;
 
             // Disable the transmit interrupt
@@ -80,27 +88,32 @@ void UART2_FLEXIO_IRQHandler(void)
 
             // Disable the transmitter
             UART2->C2 &= ~UART_C2_TE_MASK;
-        } else {
-        	// fill up UART2->D register with data, increment send_ptr
+        }
+        else
+        {
+            // fill up UART2->D register with data, increment send_ptr
             UART2->D = send_buffer[send_ptr++];
         }
     }
 
     // checking if send_buffer full with S1 and Full Mask
     // start emptying UART2->D into recv_buffer
-    if (UART2->S1 & UART_S1_RDRF_MASK) {
+    if (UART2->S1 & UART_S1_RDRF_MASK)
+    {
+        PRINTF("Ready to receive data over on UART\r\n");
         TMessage msg;
         rx_data = UART2->D;
         recv_buffer[recv_ptr++] = rx_data;
         // one completed copying data into recv_buffer
-        if (rx_data == '\n') {
+        if (rx_data == '\n')
+        {
             // Copy over the string
             BaseType_t hpw;
             recv_buffer[recv_ptr] = '\0';
             strncpy(msg.message, recv_buffer, MAX_MSG_LEN);
 
             // Release CPU voluntarily
-            xQueueSendFromISR(queue, (void *)&msg, &hpw);
+            xQueueSendFromISR(queue, &msg, &hpw);
             portYIELD_FROM_ISR(hpw);
 
             // reset recv_ptr
@@ -109,54 +122,94 @@ void UART2_FLEXIO_IRQHandler(void)
     }
 }
 
-void uartTxTask(void *pvParams) {
-	int moisture;
+void uartTxTask(void *pvParams)
+{
+    int moisture;
 
-	while (1) {
-		xQueueReceive(sensorQueue, &moisture, portMAX_DELAY);
+    while (1)
+    {
+        PRINTF("Priority 3 uartTxTask starts\r\n");
+        PRINTF("uartTxTask waiting to receive sensorQueue\r\n");
 
-		// enter CS: mutex to lock shared variable - send_buffer
-		xSemaphoreTake(uartMutex, portMAX_DELAY);
-		// allowing truncation
-		snprintf(send_buffer, MAX_MSG_LEN, "<M,%d>\n", moisture);
-		UART2->C2 |= UART_C2_TE_MASK | UART_C2_TIE_MASK; // kicks off TX of moisture value
-		xSemaphoreGive(uartMutex);
-		// end of CS
+        if (xQueueReceive(sensorQueue, &moisture, portMAX_DELAY) == pdTRUE)
+        {
+            PRINTF("sensorQueue received by uartTxTask\r\n");
 
-		//wake alertTask if critically dry
-		if (moisture < DRY_TH) {
-			// signals alertTask
-			xSemaphoreGive(alertSemaphore);
-		}
-	}
-}
+            // enter CS: mutex to lock shared variable - send_buffer
+            xSemaphoreTake(uartMutex, portMAX_DELAY);
+            PRINTF("uartMutex taken by uartTxTask/r/n");
+            // allowing truncation
+            snprintf(send_buffer, MAX_MSG_LEN, "<M,%d>\n", moisture);
 
-void uartRxTask(void *pvParams) {
-    TMessage msg;
+            UART2->C2 |= UART_C2_TE_MASK | UART_C2_TIE_MASK; // kicks off TX of moisture value
+            xSemaphoreGive(uartMutex);
+            // end of CS
+            PRINTF("uartMutex released by uartTxTask\r\n");
 
-    while (1) {
-        xQueueReceive(queue, &msg, portMAX_DELAY);
-        int cmd;
-        int val;
+            DRY_TH = 4050;
 
-        if (sscanf(msg.message, "<WL,%d>", &val) == 1) {
-        	if (val < WL_LOW_TH) {
-        		cmd = LED_RED;
-        	} else if (val < WL_HIGH_TH) {
-        		cmd = LED_YELLOW;
-        	} else {
-        		cmd = LED_GREEN;
-        	}
-        	xQueueSend(ledQueue, &cmd, 0);
-        } else if (sscanf(msg.message, "<LDR,%d>", &val) == 1) {
-        	if (val < LDR_LOW_TH) {
-        		cmd = LED_BLINK;
-        	} else {
-        		cmd = LED_OFF; // LDR value ok, turn off blink
-        	}
-        	xQueueSend(ledQueue, &cmd, 0);
-
+            // wake alertTask if critically dry
+            if (moisture < DRY_TH)
+            {
+                // signals alertTask
+                PRINTF("moisture is < DRY_TH, turning on RED LED!\r\n");
+                LED_On(RED_PIN);
+                vTaskDelay(pdMS_TO_TICKS(500));
+                LED_Off(RED_PIN);
+                xSemaphoreGive(alertSemaphore);
+            }
         }
     }
 }
 
+void uartRxTask(void *pvParams)
+{
+    PRINTF("Priority 3 uartRxTask starts\r\n");
+    PRINTF("uartRxTask waiting to receive data from ESP\r\n");
+    TMessage msg;
+
+    while (1)
+    {
+        xQueueReceive(queue, &msg, portMAX_DELAY);
+        PRINTF("Queue from ESP received\r\n");
+        int cmd;
+        int val;
+        char cond;
+
+        if (sscanf(msg.message, "<WL,%d>", &val) == 1)
+        {
+            if (val < WL_LOW_TH)
+            {
+                cmd = LED_RED;
+            }
+            else if (val < WL_HIGH_TH)
+            {
+                cmd = LED_YELLOW;
+            }
+            else
+            {
+                cmd = LED_GREEN;
+            }
+            xQueueSend(ledQueue, &cmd, 0);
+        }
+        else if (sscanf(msg.message, "<LDR,%d>", &val) == 1)
+        {
+            if (val < LDR_LOW_TH)
+            {
+                cmd = LED_BLINK;
+            }
+            else
+            {
+                cmd = LED_OFF; // LDR value ok, turn off blink
+            }
+            xQueueSend(ledQueue, &cmd, 0);
+        }
+        else if (sscanf(msg.message, "<W,R>") == 1)
+        {
+            //        	if (strncmp(cond, "R", 1) == 0) {
+            DRY_TH = 4000;
+            PRINTF("Weather condition: %c\r\n", cond);
+            PRINTF("New DRY_TH value: %d\r\n", DRY_TH);
+        }
+    }
+}

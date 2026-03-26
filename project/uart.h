@@ -13,5 +13,6 @@
 void initUART2(uint32_t baud_rate);
 void UART2_FLEXIO_IRQHandler(void);
 void uartTxTask(void *pvParams);
+void uartRxTask(void *pvParams);
 
 #endif /* UART_H_ */
