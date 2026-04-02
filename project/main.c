@@ -37,10 +37,6 @@ int main(void)
     initUART2(BAUD_RATE);
     PRINTF("UART initialized\r\n");
 
-    LED_Off(RED_PIN);
-    LED_Off(GREEN_PIN);
-    LED_Off(BLUE_PIN);
-
     // creating queues and semaphores
     queue = xQueueCreate(QLEN, sizeof(TMessage));
     sensorQueue = xQueueCreate(QLEN, sizeof(int)); // hold single moisture value
@@ -54,7 +50,7 @@ int main(void)
     xTaskCreate(soilMoisturePollingTask, "soil_poll", configMINIMAL_STACK_SIZE + 100, NULL, 2, NULL);
     xTaskCreate(alertTask, "alert", configMINIMAL_STACK_SIZE + 100, NULL, 2, NULL);
     xTaskCreate(uartTxTask, "uart_tx", configMINIMAL_STACK_SIZE + 100, NULL, 3, NULL);
-    xTaskCreate(uartRxTask, "uart_rx", configMINIMAL_STACK_SIZE + 100, NULL, 3, NULL);
+    xTaskCreate(uartRxTask, "uart_rx", configMINIMAL_STACK_SIZE + 500, NULL, 3, NULL);
     xTaskCreate(ledControlTask, "led_ctrl", configMINIMAL_STACK_SIZE + 100, NULL, 2, NULL);
 
     PRINTF("All tasks created\r\n");

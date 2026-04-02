@@ -71,11 +71,13 @@ void ledControlTask(void *pvParams)
     while (1)
     {
         // non-blocking receive, check for new commands without waiting
-        if (xQueueReceive(ledQueue, &cmd, pdMS_TO_TICKS(500)) == pdTRUE)
+        if (xQueueReceive(ledQueue, &cmd, pdMS_TO_TICKS(100)) == pdTRUE)
         {
+            PRINTF("Received LEDQUEUE, proceeding to contorl LED...\r\n");
             switch (cmd)
             {
             case LED_RED:
+                PRINTF("Turn on LED -> low level\r\n");
                 currentWaterCmd = LED_RED;
                 isBlinking = 0;
                 LED_On(RED_PIN);
@@ -83,6 +85,7 @@ void ledControlTask(void *pvParams)
                 LED_Off(BLUE_PIN);
                 break;
             case LED_YELLOW:
+                PRINTF("Turn on LED -> mid level\r\n");
                 currentWaterCmd = LED_YELLOW;
                 isBlinking = 0;
                 LED_On(RED_PIN);
@@ -90,6 +93,7 @@ void ledControlTask(void *pvParams)
                 LED_Off(BLUE_PIN);
                 break;
             case LED_GREEN:
+                PRINTF("Turn on LED -> high level\r\n");
                 currentWaterCmd = LED_GREEN;
                 isBlinking = 0;
                 LED_Off(RED_PIN);
@@ -99,6 +103,9 @@ void ledControlTask(void *pvParams)
             case LED_BLINK:
                 isBlinking = 1;
                 break;
+            case LED_NOBLINK:
+                isBlinking = 0;
+                break;
             case LED_OFF:
                 currentWaterCmd = LED_OFF;
                 isBlinking = 0;
@@ -107,45 +114,73 @@ void ledControlTask(void *pvParams)
                 LED_Off(BLUE_PIN);
                 break;
             }
+        }
 
-            // if blinking, toggle every 500ms using the timeout pdMS_TO_TICKS above
-            if (isBlinking)
+        // if blinking, toggle every 500ms using the timeout pdMS_TO_TICKS above
+        // runs regardless whether ledQueue is received
+        if (isBlinking)
+        {
+            if (blinkState == 0)
             {
-                if (blinkState == 0)
+                LED_Off(RED_PIN);
+                LED_Off(GREEN_PIN);
+                LED_Off(BLUE_PIN);
+                blinkState = 1;
+            }
+            else
+            {
+                // restore water colour
+                switch (currentWaterCmd)
                 {
+                case LED_RED:
+                    LED_On(RED_PIN);
+                    LED_Off(GREEN_PIN);
+                    LED_Off(BLUE_PIN);
+                    break;
+                case LED_YELLOW:
+                    LED_On(RED_PIN);
+                    LED_On(GREEN_PIN);
+                    LED_Off(BLUE_PIN);
+                    break;
+                case LED_GREEN:
+                    LED_Off(RED_PIN);
+                    LED_On(GREEN_PIN);
+                    LED_Off(BLUE_PIN);
+                    break;
+                default:
                     LED_Off(RED_PIN);
                     LED_Off(GREEN_PIN);
                     LED_Off(BLUE_PIN);
-                    blinkState = 1;
+                    break;
                 }
-                else
-                {
-                    // restore water colour
-                    switch (currentWaterCmd)
-                    {
-                    case LED_RED:
-                        LED_On(RED_PIN);
-                        LED_Off(GREEN_PIN);
-                        LED_Off(BLUE_PIN);
-                        break;
-                    case LED_YELLOW:
-                        LED_On(RED_PIN);
-                        LED_On(GREEN_PIN);
-                        LED_Off(BLUE_PIN);
-                        break;
-                    case LED_GREEN:
-                        LED_Off(RED_PIN);
-                        LED_On(GREEN_PIN);
-                        LED_Off(BLUE_PIN);
-                        break;
-                    default:
-                        LED_Off(RED_PIN);
-                        LED_Off(GREEN_PIN);
-                        LED_Off(BLUE_PIN);
-                        break;
-                    }
-                    blinkState = 0;
-                }
+                blinkState = 0;
+            }
+        }
+        else
+        {
+            // not blinking — just hold steady colour
+            switch (currentWaterCmd)
+            {
+            case LED_RED:
+                LED_On(RED_PIN);
+                LED_Off(GREEN_PIN);
+                LED_Off(BLUE_PIN);
+                break;
+            case LED_YELLOW:
+                LED_On(RED_PIN);
+                LED_On(GREEN_PIN);
+                LED_Off(BLUE_PIN);
+                break;
+            case LED_GREEN:
+                LED_Off(RED_PIN);
+                LED_On(GREEN_PIN);
+                LED_Off(BLUE_PIN);
+                break;
+            case LED_OFF:
+                LED_Off(RED_PIN);
+                LED_Off(GREEN_PIN);
+                LED_Off(BLUE_PIN);
+                break;
             }
         }
     }

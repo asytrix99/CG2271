@@ -14,7 +14,7 @@ void soilMoisturePollingTask(void *pvParams)
 		/// task waits and re-triggers every 2s
 		PRINTF("Priority 2 soilMoisturePollingTask starts\r\n");
 		ADC_Start(ADC_SE0);
-		vTaskDelay(pdMS_TO_TICKS(2000));
+		vTaskDelay(pdMS_TO_TICKS(300));
 		PRINTF("Next ADC firing...\r\n");
 	}
 }

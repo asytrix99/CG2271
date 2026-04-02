@@ -5,13 +5,12 @@
 #include <time.h>
 #include <ESP32Servo.h>
 
-
 // Wifi connection and password
-const char* ssid = "Xiaomi 13 Pro"; 
-const char* password = "1234567890";
+const char *ssid = "drew's iphone";
+const char *password = "12345678";
 
 // API variables
-String openWeatherMapApiKey = "11d9fd741957988badffa1134a497315"; 
+String openWeatherMapApiKey = "11d9fd741957988badffa1134a497315";
 String city = "Singapore";
 String countryCode = "SG";
 String weatherCondition;
@@ -23,7 +22,7 @@ unsigned long timerDelay = 10000; // Api call delay : 10 seconds
 // Telegram bot variables
 String botToken = "7698137105:AAEttnPiSC-jwm-TEy5URZkxQg0FrFB6JqI";
 String chatId = "7404385637";
-const char* ntp = "pool.ntp.org";
+const char *ntp = "pool.ntp.org";
 const long offset = 8 * 3600; // 8h * 3600seconds
 
 // Pin declarations
@@ -32,6 +31,7 @@ const int NEW_RX_PIN = 2;
 int WATER_PIN = 3;
 int LDR_PIN = 4;
 int SERVO_PIN = 5;
+int SENSOR_POWER_PIN = 6;
 
 // Global variables for sensor values
 int rawWater;
@@ -44,53 +44,65 @@ Servo valve;
 static int angle_closed = 0;
 static int angle_open = 90;
 
-void setup() {
-  Serial.begin(115200); // Serial monitor
+void setup()
+{
+  Serial.begin(115200);                                    // Serial monitor
   Serial1.begin(9600, SERIAL_8N1, NEW_RX_PIN, NEW_TX_PIN); // UART
   Serial.print("Connecting to SSID: ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
   valve.attach(SERVO_PIN, 500, 2400); // Grants 180 degrees of rotation
   valve.write(0);
-  
-  while(WiFi.status() != WL_CONNECTED) {
+
+  pinMode(SENSOR_POWER_PIN, OUTPUT);
+  digitalWrite(SENSOR_POWER_PIN, LOW);
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
     delay(250);
     Serial.print(".");
   }
-  
+
   Serial.println("\nConnected to WiFi!");
 
   configTime(offset, 0, ntp);
   Serial.println("Time configured via NTP.");
-  //sendTelegramMessage("⚠️ ALERT: Water tank is critically low! Please refill.");
+  // sendTelegramMessage("⚠️ ALERT: Water tank is critically low! Please refill.");
 }
 
-void loop() {
+void loop()
+{
 
   readSensors();
 
-  if ((millis() - lastTime) > timerDelay) {
-    if (WiFi.status() == WL_CONNECTED){
+  if ((millis() - lastTime) > timerDelay)
+  {
+    if (WiFi.status() == WL_CONNECTED)
+    {
       String jsonBuffer = fetchAPIData();
       JSONVar myObject = JSON.parse(jsonBuffer);
-      if(JSON.typeof(myObject) == "undefined") {
+      if (JSON.typeof(myObject) == "undefined")
+      {
         Serial.println("Parsing input failed!");
         return;
       }
 
-      weatherCondition = (const char*) myObject["weather"][0]["main"]; // Extract the "main" weather condition
-      
+      weatherCondition = (const char *)myObject["weather"][0]["main"]; // Extract the "main" weather condition
+
       // Packetize data
       String packetToSend = createMessageString();
-      
+
       printTransmittedMessage(packetToSend);
-    } else {
+    }
+    else
+    {
       Serial.println("WiFi Disconnected");
     }
     lastTime = millis();
   }
 
-  if (Serial1.available()) {
+  if (Serial1.available())
+  {
     String incomingData = Serial1.readStringUntil('\n');
     Serial.print("Received from MCXC444: ");
     Serial.println(incomingData);
@@ -99,63 +111,98 @@ void loop() {
   }
 }
 
-String fetchAPIData() {
+String fetchAPIData()
+{
   String serverPath = "http://api.openweathermap.org/data/2.5/weather?q=" + city + "," + countryCode + "&APPID=" + openWeatherMapApiKey;
   String jsonBuffer = httpGETRequest(serverPath.c_str());
   return jsonBuffer;
 }
 
-String createMessageString() {
+String createMessageString()
+{
   String packetToSend = "";
-  if (weatherCondition == "Clear") {
+  if (weatherCondition == "Clear")
+  {
     packetToSend = "<W,S>"; // Sunny
-  } else if (weatherCondition == "Rain" || weatherCondition == "Thunderstorm" || weatherCondition == "Drizzle") {
+  }
+  else if (weatherCondition == "Rain" || weatherCondition == "Thunderstorm" || weatherCondition == "Drizzle")
+  {
     packetToSend = "<W,R>"; // Rainy
-  } else {
+  }
+  else
+  {
     packetToSend = "<W,C>"; // Cloudy
   }
   packetToSend += "<" + String(waterLevel) + ", " + String(lightLevel) + ">";
   return packetToSend;
 }
 
-void printTransmittedMessage(String packetToSend) {
-  Serial1.println(packetToSend); 
+void printTransmittedMessage(String packetToSend)
+{
+  Serial1.println(packetToSend);
   Serial.print("Raw Weather Condition: ");
   Serial.println(weatherCondition);
-  Serial.print("Sent to MCXC444: "); 
+  Serial.print("Sent to MCXC444: ");
   Serial.println(packetToSend);
   Serial.println("-------------------------");
 }
 
-void processMessage(String incomingData) {
-  if (incomingData.indexOf("<A,LOW>") >= 0) {
+unsigned long lastWaterTime = 0;
+unsigned long waterCooldown = 10000; // 10s cooldown for open valve
+
+void processMessage(String incomingData)
+{
+  if (incomingData.indexOf("<A,LOW>") >= 0)
+  {
     sendTelegramMessage("ALERT: Water tank is critically low! Please refill.");
   }
-  else if (incomingData.indexOf("<A,D>") >= 0) {
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
-      Serial.println("Failed to obtain time");
-      sendTelegramMessage("Watering! (Failed to obtain time)");
-    } else {
-      char timeStr[50];
-      strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-      String msg = "Watering!\n time: " + String(timeStr);
-      sendTelegramMessage(msg);
+  else if (incomingData.indexOf("<A,D>") >= 0)
+  {
+
+    if (millis() - lastWaterTime >= waterCooldown)
+    {
+      lastWaterTime = millis();
+
+      openValve();
+      delay(500);
+      closeValve();
+
+      struct tm timeinfo;
+      if (!getLocalTime(&timeinfo))
+      {
+        Serial.println("Failed to obtain time");
+        sendTelegramMessage("Watering! (Failed to obtain time)");
+      }
+      else
+      {
+        char timeStr[50];
+        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+        String msg = "Watering!\n time: " + String(timeStr);
+        sendTelegramMessage(msg);
+      }
+    }
+    else
+    {
+      Serial.println("Watering cooldown active...");
     }
   }
 }
 
-String httpGETRequest(const char* serverName) {
+String httpGETRequest(const char *serverName)
+{
   WiFiClient client;
   HTTPClient http;
-  
+
   http.begin(client, serverName);
   int httpResponseCode = http.GET();
-  
+
   String payload = "{}";
-  if (httpResponseCode > 0) {
+  if (httpResponseCode > 0)
+  {
     payload = http.getString();
-  } else {
+  }
+  else
+  {
     Serial.print("Error code: ");
     Serial.println(httpResponseCode);
   }
@@ -163,20 +210,25 @@ String httpGETRequest(const char* serverName) {
   return payload;
 }
 
-void sendTelegramMessage(String message) {
-  if(WiFi.status() == WL_CONNECTED){
+void sendTelegramMessage(String message)
+{
+  if (WiFi.status() == WL_CONNECTED)
+  {
     WiFiClientSecure secureClient;
     secureClient.setInsecure();
     HTTPClient http;
-    
+
     String url = "https://api.telegram.org/bot" + botToken + "/sendMessage?chat_id=" + chatId + "&text=" + message;
-    
+
     http.begin(secureClient, url);
     int httpResponseCode = http.GET();
-    
-    if (httpResponseCode > 0) {
+
+    if (httpResponseCode > 0)
+    {
       Serial.println("Telegram Alert Sent Successfully!");
-    } else {
+    }
+    else
+    {
       Serial.print("Telegram Error Code: ");
       Serial.println(httpResponseCode);
     }
@@ -184,17 +236,45 @@ void sendTelegramMessage(String message) {
   }
 }
 
-void readSensors() {
-  rawWater = analogRead(WATER_PIN);
-  rawLight = analogRead(LDR_PIN);
-  waterLevel = (char)(((float)rawWater / 8191.0) * 255.0);
+void readSensors()
+{
+  // wait to stabilise for 2s before reading
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
+  delay(200);
+
+  // Take 20 samples and average
+  int waterSum = 0;
+  int lightSum = 0;
+  int numSamples = 20;
+
+  for (int i = 0; i < numSamples; i++)
+  {
+    waterSum += analogRead(WATER_PIN);
+    lightSum += analogRead(LDR_PIN);
+    delay(50);
+  }
+
+  rawWater = waterSum / numSamples;
+  rawLight = lightSum / numSamples;
+
+  // waterLevel = (char)(((float)rawWater / 8191.0) * 255.0);
   lightLevel = (char)(((float)rawLight / 8191.0) * 255.0);
+  waterLevel = (char)(((float)rawWater / 8191.0) * 255.0);
+
+  Serial.print("Water level: ");
+  Serial.println(waterLevel);
+  Serial.print("Light level: ");
+  Serial.println(lightLevel);
+
+  digitalWrite(SENSOR_POWER_PIN, LOW);
 }
 
-void openValve() {
+void openValve()
+{
   valve.write(angle_open);
 }
 
-void closeValve() {
+void closeValve()
+{
   valve.write(angle_closed);
 }

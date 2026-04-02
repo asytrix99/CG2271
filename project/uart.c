@@ -76,7 +76,7 @@ void UART2_FLEXIO_IRQHandler(void)
     //
     if ((UART2->S1 & UART_S1_TDRE_MASK) && (UART2->C2 & UART_C2_TIE_MASK))
     {
-        PRINTF("Ready to send data over on UART\r\n");
+        //    	PRINTF("Ready to send data over on UART\r\n");
         // once reached end of send_buffer,
         // stop transmitting, reset send_ptr
         if (send_buffer[send_ptr] == '\0')
@@ -100,13 +100,14 @@ void UART2_FLEXIO_IRQHandler(void)
     // start emptying UART2->D into recv_buffer
     if (UART2->S1 & UART_S1_RDRF_MASK)
     {
-        PRINTF("Ready to receive data over on UART\r\n");
+        //    	PRINTF("Ready to receive data over on UART\r\n");
         TMessage msg;
         rx_data = UART2->D;
         recv_buffer[recv_ptr++] = rx_data;
         // one completed copying data into recv_buffer
         if (rx_data == '\n')
         {
+            PRINTF("Reached end of string of recv_buffer\r\n");
             // Copy over the string
             BaseType_t hpw;
             recv_buffer[recv_ptr] = '\0';
@@ -137,7 +138,7 @@ void uartTxTask(void *pvParams)
 
             // enter CS: mutex to lock shared variable - send_buffer
             xSemaphoreTake(uartMutex, portMAX_DELAY);
-            PRINTF("uartMutex taken by uartTxTask/r/n");
+            PRINTF("uartMutex taken by uartTxTask\r\n");
             // allowing truncation
             snprintf(send_buffer, MAX_MSG_LEN, "<M,%d>\n", moisture);
 
@@ -146,16 +147,13 @@ void uartTxTask(void *pvParams)
             // end of CS
             PRINTF("uartMutex released by uartTxTask\r\n");
 
-            DRY_TH = 4050;
+            DRY_TH = 3800;
 
             // wake alertTask if critically dry
-            if (moisture < DRY_TH)
+            if (moisture > DRY_TH)
             {
                 // signals alertTask
-                PRINTF("moisture is < DRY_TH, turning on RED LED!\r\n");
-                LED_On(RED_PIN);
-                vTaskDelay(pdMS_TO_TICKS(500));
-                LED_Off(RED_PIN);
+                PRINTF("moisture is > DRY_TH!\r\n");
                 xSemaphoreGive(alertSemaphore);
             }
         }
@@ -173,43 +171,47 @@ void uartRxTask(void *pvParams)
         xQueueReceive(queue, &msg, portMAX_DELAY);
         PRINTF("Queue from ESP received\r\n");
         int cmd;
-        int val;
+        int waterLevel, lightLevel;
         char cond;
 
-        if (sscanf(msg.message, "<WL,%d>", &val) == 1)
+        if (sscanf(msg.message, "<W,%c>", &cond))
         {
-            if (val < WL_LOW_TH)
+            if (cond == 'R')
             {
+                DRY_TH = 4000;
+                PRINTF("Weather condition: %c\r\n", cond);
+                PRINTF("New DRY_TH value: %d\r\n", DRY_TH);
+            }
+        }
+
+        if (sscanf(msg.message, "<W,%*c><%d, %d>", &waterLevel, &lightLevel) == 2)
+        {
+            if (waterLevel < WL_TH)
+            {
+                PRINTF("Low water level detected!\r\n");
                 cmd = LED_RED;
             }
-            else if (val < WL_HIGH_TH)
-            {
-                cmd = LED_YELLOW;
-            }
+            //        	} else if (waterLevel < WL_HIGH_TH) {
+            //        		cmd = LED_YELLOW;
+            //        		PRINTF("Mid water level detected!\r\n");
             else
             {
                 cmd = LED_GREEN;
+                PRINTF("High water level detected!\r\n");
             }
             xQueueSend(ledQueue, &cmd, 0);
-        }
-        else if (sscanf(msg.message, "<LDR,%d>", &val) == 1)
-        {
-            if (val < LDR_LOW_TH)
+
+            if (lightLevel > LDR_LOW_TH)
             {
                 cmd = LED_BLINK;
+                PRINTF("Low light level detected!\r\n");
             }
             else
             {
-                cmd = LED_OFF; // LDR value ok, turn off blink
+                cmd = LED_NOBLINK;
+                PRINTF("Normal light level...\r\n");
             }
             xQueueSend(ledQueue, &cmd, 0);
-        }
-        else if (sscanf(msg.message, "<W,R>") == 1)
-        {
-            //        	if (strncmp(cond, "R", 1) == 0) {
-            DRY_TH = 4000;
-            PRINTF("Weather condition: %c\r\n", cond);
-            PRINTF("New DRY_TH value: %d\r\n", DRY_TH);
         }
     }
 }

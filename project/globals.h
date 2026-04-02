@@ -42,6 +42,7 @@ typedef struct tm
 #define LED_GREEN 2  // high water level -> ok
 #define LED_BLINK 3  // LDR below threshold
 #define LED_OFF 4
+#define LED_NOBLINK 5
 
 #define RED_PIN 31  // PTE31
 #define GREEN_PIN 5 // PTD5
@@ -55,9 +56,8 @@ typedef struct tm
 #define UART2_INT_PRIO 128
 
 // defining threhsholds (to be tuned)
-#define WL_LOW_TH 1000
-#define WL_HIGH_TH 3000
-#define LDR_LOW_TH 500
+#define WL_TH 100
+#define LDR_LOW_TH 100
 
 /* UART DEFINES */
 // Configure ADC_SE0 on PTE20
