@@ -143,6 +143,10 @@ void uartTxTask(void *pvParams)
             snprintf(send_buffer, MAX_MSG_LEN, "<M,%d>\n", moisture);
 
             UART2->C2 |= UART_C2_TE_MASK | UART_C2_TIE_MASK; // kicks off TX of moisture value
+            //wait for sending package
+            while(UART2->C2 & UART_C2_TIE_MASK){
+            	vTaskDelay(pdMS_TO_TICKS(2)); // give up CPU
+            }
             xSemaphoreGive(uartMutex);
             // end of CS
             PRINTF("uartMutex released by uartTxTask\r\n");
@@ -190,6 +194,13 @@ void uartRxTask(void *pvParams)
             {
                 PRINTF("Low water level detected!\r\n");
                 cmd = LED_RED;
+                xSemaphoreTake(uartMutex, portMAX_DELAY);
+                snprintf(send_buffer, MAX_MSG_LEN, "<A,LOW>\n");
+                UART2->C2 |= UART_C2_TE_MASK | UART_C2_TIE_MASK;
+                while(UART2->C2 & UART_C2_TIE_MASK){
+                	vTaskDelay(pdMS_TO_TICKS(2));
+                }
+                xSemaphoreGive(uartMutex);
             }
             //        	} else if (waterLevel < WL_HIGH_TH) {
             //        		cmd = LED_YELLOW;

@@ -6,8 +6,8 @@
 #include <ESP32Servo.h>
 
 // Wifi connection and password
-const char *ssid = "drew's iphone";
-const char *password = "12345678";
+const char *ssid = "Xiaomi 13 Pro";
+const char *password = "1234567890";
 
 // API variables
 String openWeatherMapApiKey = "11d9fd741957988badffa1134a497315";
@@ -18,6 +18,8 @@ String weatherCondition;
 // Variables for controlling API fetch frequency
 unsigned long lastTime = 0;
 unsigned long timerDelay = 10000; // Api call delay : 10 seconds
+unsigned long lastLowWaterAlertTime = 0;
+unsigned long lowWaterAlertCooldown = 60000;
 
 // Telegram bot variables
 String botToken = "7698137105:AAEttnPiSC-jwm-TEy5URZkxQg0FrFB6JqI";
@@ -67,7 +69,7 @@ void setup()
 
   configTime(offset, 0, ntp);
   Serial.println("Time configured via NTP.");
-  // sendTelegramMessage("⚠️ ALERT: Water tank is critically low! Please refill.");
+  // sendTelegramMessage("ALERT: Water tank is critically low! Please refill.");
 }
 
 void loop()
@@ -154,15 +156,21 @@ void processMessage(String incomingData)
 {
   if (incomingData.indexOf("<A,LOW>") >= 0)
   {
-    sendTelegramMessage("ALERT: Water tank is critically low! Please refill.");
+    if (millis() - lastLowWaterAlertTime >= lowWaterAlertCooldown) 
+    {
+      lastLowWaterAlertTime = millis();
+      sendTelegramMessage("ALERT: Water tank is critically low! Please refill.");
+    }
+    else 
+    {
+      Serial.println("Low water alert suppressed by cooldown.");
+    }
   }
   else if (incomingData.indexOf("<A,D>") >= 0)
   {
-
     if (millis() - lastWaterTime >= waterCooldown)
     {
       lastWaterTime = millis();
-
       openValve();
       delay(500);
       closeValve();
@@ -177,7 +185,7 @@ void processMessage(String incomingData)
       {
         char timeStr[50];
         strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-        String msg = "Watering!\n time: " + String(timeStr);
+        String msg = "Watering!\\n Time: " + String(timeStr);
         sendTelegramMessage(msg);
       }
     }
@@ -185,6 +193,14 @@ void processMessage(String incomingData)
     {
       Serial.println("Watering cooldown active...");
     }
+  }
+  else if (incomingData.indexOf("<V,1>") >= 0)
+  {
+    Serial.println("Manual Override Received! Watering...");
+    openValve();
+    delay(500);
+    closeValve();
+    sendTelegramMessage("Manual Watering Triggered!");
   }
 }
 
@@ -218,10 +234,12 @@ void sendTelegramMessage(String message)
     secureClient.setInsecure();
     HTTPClient http;
 
-    String url = "https://api.telegram.org/bot" + botToken + "/sendMessage?chat_id=" + chatId + "&text=" + message;
-
+    String url = "https://api.telegram.org/bot" + botToken + "/sendMessage";
     http.begin(secureClient, url);
-    int httpResponseCode = http.GET();
+    http.addHeader("Content-Type", "application/json"); // Specify content type as JSON
+
+    String payload = "{\"chat_id\":\"" + chatId + "\",\"text\":\"" + message + "\"}";
+    int httpResponseCode = http.POST(payload); // Send HTTP POST request
 
     if (httpResponseCode > 0)
     {
@@ -261,10 +279,10 @@ void readSensors()
   lightLevel = (char)(((float)rawLight / 8191.0) * 255.0);
   waterLevel = (char)(((float)rawWater / 8191.0) * 255.0);
 
-  Serial.print("Water level: ");
-  Serial.println(waterLevel);
-  Serial.print("Light level: ");
-  Serial.println(lightLevel);
+  // Serial.print("Water level: ");
+  // Serial.println(waterLevel);
+  // Serial.print("Light level: ");
+  // Serial.println(lightLevel);
 
   digitalWrite(SENSOR_POWER_PIN, LOW);
 }

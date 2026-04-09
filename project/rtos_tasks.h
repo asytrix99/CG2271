@@ -13,5 +13,6 @@
 
 void soilMoisturePollingTask(void *pvParams);
 void alertTask(void *pvParams);
-
+extern SemaphoreHandle_t buttonSemaphore;
+void manualWaterTask(void *pvParams);
 #endif /* TASKS_H_ */
