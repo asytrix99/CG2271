@@ -56,7 +56,7 @@ typedef struct tm
 #define UART2_INT_PRIO 128
 
 // defining threhsholds (to be tuned)
-#define WL_TH 100
+#define WL_TH 50
 #define LDR_LOW_TH 100
 
 /* UART DEFINES */

@@ -103,7 +103,9 @@ void UART2_FLEXIO_IRQHandler(void)
         //    	PRINTF("Ready to receive data over on UART\r\n");
         TMessage msg;
         rx_data = UART2->D;
-        recv_buffer[recv_ptr++] = rx_data;
+        if (recv_ptr < MAX_MSG_LEN - 1) {
+            recv_buffer[recv_ptr++] = rx_data;
+        }
         // one completed copying data into recv_buffer
         if (rx_data == '\n')
         {
@@ -126,6 +128,7 @@ void UART2_FLEXIO_IRQHandler(void)
 void uartTxTask(void *pvParams)
 {
     int moisture;
+    DRY_TH = 3800;
 
     while (1)
     {
@@ -143,11 +146,13 @@ void uartTxTask(void *pvParams)
             snprintf(send_buffer, MAX_MSG_LEN, "<M,%d>\n", moisture);
 
             UART2->C2 |= UART_C2_TE_MASK | UART_C2_TIE_MASK; // kicks off TX of moisture value
+            //wait for sending package
+            while(UART2->C2 & UART_C2_TIE_MASK){
+            	vTaskDelay(pdMS_TO_TICKS(2)); // give up CPU
+            }
             xSemaphoreGive(uartMutex);
             // end of CS
             PRINTF("uartMutex released by uartTxTask\r\n");
-
-            DRY_TH = 3800;
 
             // wake alertTask if critically dry
             if (moisture > DRY_TH)
@@ -190,6 +195,13 @@ void uartRxTask(void *pvParams)
             {
                 PRINTF("Low water level detected!\r\n");
                 cmd = LED_RED;
+                xSemaphoreTake(uartMutex, portMAX_DELAY);
+                snprintf(send_buffer, MAX_MSG_LEN, "<A,LOW>\n");
+                UART2->C2 |= UART_C2_TE_MASK | UART_C2_TIE_MASK;
+                while(UART2->C2 & UART_C2_TIE_MASK){
+                	vTaskDelay(pdMS_TO_TICKS(2));
+                }
+                xSemaphoreGive(uartMutex);
             }
             //        	} else if (waterLevel < WL_HIGH_TH) {
             //        		cmd = LED_YELLOW;

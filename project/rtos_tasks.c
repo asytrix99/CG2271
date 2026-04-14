@@ -38,9 +38,48 @@ void alertTask(void *pvParams)
 			snprintf(send_buffer, MAX_MSG_LEN, "<A,D>\n");
 			UART2->C2 |= UART_C2_TE_MASK | UART_C2_TIE_MASK; // kicks off TX of alert,dry  flag
 
+			//wait for sending package
+			while(UART2->C2 & UART_C2_TIE_MASK){
+				vTaskDelay(pdMS_TO_TICKS(2)); // give up CPU
+			}
+
 			xSemaphoreGive(uartMutex);
 			PRINTF("uartMutex released\r\n");
 			// end of CS
 		}
 	}
+}
+
+void manualWaterTask(void *pvParams)
+{
+    PRINTF("Priority 4 manualWaterTask starts\r\n");
+
+    while (1)
+    {
+        // Block and wait for button interrupt
+        if (xSemaphoreTake(buttonSemaphore, portMAX_DELAY) == pdTRUE)
+        {
+            PRINTF("Button pressed! Manual override triggered.\r\n");
+
+            // Software debounce delay (300ms)
+            vTaskDelay(pdMS_TO_TICKS(300));
+            xQueueReset(buttonSemaphore);
+
+            // Enter critical section
+            xSemaphoreTake(uartMutex, portMAX_DELAY);
+            PRINTF("uartMutex taken by manualWaterTask\r\n");
+
+            // Send manual override command to ESP32
+            snprintf(send_buffer, MAX_MSG_LEN, "<V,1>\n");
+            UART2->C2 |= UART_C2_TE_MASK | UART_C2_TIE_MASK;
+
+            // Wait until transmission is complete
+            while(UART2->C2 & UART_C2_TIE_MASK){
+                vTaskDelay(pdMS_TO_TICKS(2));
+            }
+
+            xSemaphoreGive(uartMutex);
+            PRINTF("uartMutex released by manualWaterTask\r\n");
+        }
+    }
 }
