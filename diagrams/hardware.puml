@@ -1,0 +1,66 @@
+@startuml
+title Firmware Architecture - IrrigateToNotIrritate
+
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment center
+skinparam linetype ortho
+
+package "Sensors & Input" {
+    [FC-28 Soil Moisture] as FC28
+    [KY-018 Photoresistor] as KY018
+    [HW-038 Water Level] as HW038
+    [SW3 Push Button] as SW3
+}
+
+package "MCXC444" {
+    [soilMoisturePollingTask] as T_SOIL
+    [alertTask] as T_ALERT
+    [uartTxTask] as T_TX
+    [uartRxTask] as T_RX
+    [ledControlTask] as T_LED
+    [manualWaterTask] as T_MANUAL
+    [RGB LED] as LED
+}
+
+package "ESP32" {
+    [Servo] as SERVO
+    [Telegram Bot] as TG
+    [Weather Client] as OWM
+}
+
+cloud "Internet" {
+    [OpenWeatherMap] as OWM_CLOUD
+    [Telegram] as TG_CLOUD
+}
+
+FC28 -right-> T_SOIL : ADC
+SW3 -right-> T_MANUAL : interrupt
+KY018 -right-> ESP32
+HW038 -right-> ESP32
+
+T_SOIL -down-> T_TX
+T_SOIL -down-> T_ALERT : dry
+T_ALERT -down-> T_TX
+T_MANUAL -down-> T_TX
+T_RX -down-> T_LED
+T_LED -down-> LED
+
+T_TX -right-> ESP32 : TX packets
+ESP32 -left-> T_RX : RX packets
+
+ESP32 -down-> SERVO : open valve
+ESP32 -down-> TG : alert
+ESP32 -down-> OWM : weather
+
+OWM -right-> OWM_CLOUD : HTTP GET
+TG -right-> TG_CLOUD : HTTP POST
+
+legend right
+  [1] <M,%d>   moisture value
+  [2] <A,D>    soil dry alert
+  [3] <A,LOW>  tank low alert
+  [4] <V,1>    manual override
+  [5] <W,%c>   weather update
+  [6] <%d,%d>  water, light levels
+endlegend
+@enduml

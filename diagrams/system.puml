@@ -1,0 +1,87 @@
+== Soil Moisture Flow ==
+loop every 300ms
+    soilMoisturePollingTask -> ADC_ISR : ADC_Start()
+end
+
+ADC_ISR -> uartTxTask : xQueueSend(sensorQueue, &moistureVal, &hpw)
+
+uartTxTask -> uartTxTask : xSemaphoreTake(uartMutex)
+uartTxTask -> uartTxTask : "<M,moistureVal>" into send_buffer
+uartTxTask -> UART_ISR : enable TX interrupt
+UART_ISR -> ESP : send "<M,moistureVal>"
+uartTxTask -> uartTxTask : xSemaphoreGive(uartMutex)
+
+opt moisture > DRY_TH
+    uartTxTask -> alertTask : xSemaphoreGive(alertSemaphore)
+end
+
+
+
+== Alert Flow ==
+alertTask -> uartTxTask : xSemaphoreTake(alertSemaphore, portMAX_DELAY)
+alertTask-> alertTask: xSemaphoreTake(uartMutex)
+alertTask -> alertTask : "<A,D>" into send_buffer
+alertTask -> UART_ISR : enable TX interrupt
+UART_ISR -> ESP: send "<A,D>"
+alertTask -> alertTask : xSemaphoreGive(uartMutex)
+
+
+
+== UART Receive Flow ==
+ESP -> UART_ISR : xQueueReceive(queue, &msg, portMAX_DELAY)
+
+opt msg contains "<W,%c>"
+   note right of UART_ISR: %c: 'R', 'C' or 'S'
+   opt rainy 'R'
+      UART_ISR -> UART_ISR: increase DRY_TH
+   end
+end
+
+
+opt msg contains "<W,%*c><%d, %d>"
+   note right of uartRxTask: 1st %d is water level, 2nd %d is light level
+   alt water level < WL_TH
+      uartRxTask -> ESP : send "<A,LOW>"
+      uartRxTask -> uartRxTask : set cmd = LED_RED
+   else normal water level
+      uartRxTask -> uartRxTask : set cmd = LED_GREEN
+   end
+end
+
+uartRxTask -> ledControlTask : xQueueSend(ledQueue, &cmd, 0)
+
+alt light level > LDR_LOW_TH
+    uartRxTask -> uartRxTask : set cmd = LED_BLINK
+else normal light level
+    uartRxTask -> uartRxTask : set cmd = LED_NOBLINK
+end
+
+uartRxTask -> ledControlTask : xQueueSend(ledQueue, &cmd, 0)
+
+
+
+== LED Control ==
+uartRxTask -> ledControlTask : xQueueReceive(ledQueue, &msg, pdMS_TO_TICKS(100))
+
+alt cmd == LED_RED
+   ledControlTask -> LED : LED_On(RED_PIN)
+else cmd == LED_GREEN
+   ledControlTask -> LED : LED_On(GREEN_PIN)
+end
+
+opt isBlinking == 1
+   note right of ledControlTask : previous LED colour preserved
+   ledControlTask -> LED : blink toggle every 100ms
+end
+
+
+
+== Manual Button ==
+Button_ISR -> manualWaterTask : xSemaphoreGiveFromISR(buttonSemaphore, &hpw)
+manualWaterTask -> Button_ISR : xSemaphoreTake(buttonSemaphore, portMAX_DELAY)
+manualWaterTask -> manualWaterTask : xQueueReset(buttonSemaphore)
+manualWaterTask -> manualWaterTask : xSemaphoreTake(uartMutex)
+manualWaterTask -> manualWaterTask : "<V,1>" into send_buffer
+manualWaterTask -> UART_ISR : enable TX interrupt
+UART_ISR -> ESP : send "<V,1>"
+manualWaterTask -> manualWaterTask : xSemaphoreGive(uartMutex)
